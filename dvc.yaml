@@ -1,0 +1,74 @@
+stages:
+  make_dataset:
+    cmd: python .\src\data\make_dataset.py
+    deps:
+      - .\data\raw\creditcard.csv
+      - .\src\data\make_dataset.py
+    params:
+      - make_dataset.test_split
+      - make_dataset.seed
+    outs:
+      - .\data\interim\train.csv
+      - .\data\interim\test.csv
+
+  build_features:
+    cmd: python .\src\features\build_features.py .\data\processed\
+    deps:
+      - .\data\interim\train.csv
+      - .\data\interim\test.csv
+      - .\src\features\build_features.py
+    outs:
+      - .\data\processed\train.csv
+      - .\data\processed\test.csv
+
+  train_model:
+    cmd: python .\src\models\train_model.py .\data\processed\
+    deps:
+      - .\data\processed\train.csv
+      - .\data\processed\test.csv
+      - .\src\models\train_model.py
+    params:
+      - train_model.seed
+      - train_model.n_estimators
+      - train_model.max_depth
+    outs:
+      - .\models\model.joblib
+
+  visualize:
+    cmd: python .\src\visualization\visualize.py
+    deps:
+      - .\data\processed\
+      - .\models\model.joblib
+      - .\src\visualization\visualize.py
+    outs:
+      - dvclive
+
+metrics:
+  - dvclive\metrics.json
+
+# ToDo - Have to insert plots so that it will reflect on dvc extension
+plots:
+  - dvclive/plots/sklearn/roc/train.json:
+      x: fpr
+      y: tpr
+      template: simple
+  - dvclive/plots/sklearn/roc/test.json:
+      x: fpr
+      y: tpr
+      template: simple
+  - dvclive/plots/sklearn/prc/train.json:
+      x: recall
+      y: precision
+      template: simple
+  - dvclive/plots/sklearn/prc/test.json:
+      x: recall
+      y: precision
+      template: simple
+  - dvclive/plots/sklearn/cm/train.json:
+      x: actual
+      y: predicted
+      template: confusion
+  - dvclive/plots/sklearn/cm/test.json:
+      x: actual
+      y: predicted
+      template: confusion

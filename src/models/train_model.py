@@ -1,113 +1,126 @@
 import pathlib
-import logging
 import yaml
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 import joblib
+from typing import Tuple, Dict, Optional, Any
 
-def load_params(path: str, logger) -> dict:
-    try:
-        with open("params.yaml", 'r') as f:
-            logger.debug("Loading parameters from params.yaml")
-            params = yaml.safe_load(f)
-            logger.debug("Parameters loaded from params.yaml")
-            return params['train_model']
-    except yaml.YAMLError as e:
-        logger.error(f"Error parsing params.yaml: {e}")
-        raise yaml.YAMLError
-    except FileNotFoundError as e:
-        logger.error(f"params.yaml not found: {e}")
-        raise FileNotFoundError
-    except Exception as e:
-        logger.error(f"Unexpected error loading parameters: {e}")
-        raise Exception
-
-def load_data(path: str, logger) -> tuple:
-    try:
-        logger.debug(f"Loading datasets from path: {path}")
-        train = pd.read_csv(path + "/train.csv")
-        logger.info("Datasets loaded from path")
-
-        try:
-            X = train.drop(columns=['Class'])
-            y = train['Class']
-            return X, y
-        except KeyError as e:
-            logger.error(f"Missing 'Class' column: {e}")
-            raise KeyError
-    
-    except FileNotFoundError as e:
-        logger.error(f"File not found at path: {path}. Error: {e}")
-        raise FileNotFoundError
-    except Exception as e:
-        logger.error(f"Unexpected error loading datasets: {e}")
-        raise Exception
-
-def train_model(X_train: pd.DataFrame, y_train: pd.DataFrame, params: dict, logger):
-    try:
-        logger.debug("Initializing RandomForestClassifier")
-        model = RandomForestClassifier(
-            n_estimators=params['n_estimators'],
-            max_depth=params['max_depth'],
-            random_state=params['seed']
-        )
-
-        logger.debug("Fitting model to training data")
-        model.fit(X_train, y_train)
-        logger.debug("Model training complete")
+class ModelTrainer:
+    def __init__(self):
+        # Set up paths
+        self.curr_dir = pathlib.Path(__file__).resolve()
+        self.home_dir = self.curr_dir.parent.parent.parent
+        self.params_path = self.home_dir.as_posix() + "/params.yaml"
+        self.data_path = self.home_dir.as_posix() + "/data"
+        self.training_data_path = self.data_path + "/processed"
+        self.model_path = self.home_dir.as_posix() + "/models"
         
-        return model
-    except KeyError as e:
-        logger.error(f"Missing parameter: {e}")
-        raise KeyError
-    except ValueError as e:
-        logger.error(f"Error during model training: {e}")
-        raise ValueError
-    except Exception as e:
-        logger.error(f"Unexpected error during model training: {e}")
-        raise Exception
+        # Initialize variables
+        self.params = None
+        self.X = None
+        self.y = None
+        self.model = None
 
-def save_model(model, path: str, logger) -> None:
-    logger.debug("Saving model to file")
-    joblib.dump(model, path + "/model.joblib")
-    logger.debug("Model saved to file")
+    def load_params(self, path: Optional[str] = None) -> Dict[str, Any]:
+        """Load model parameters from YAML file"""
+        if path is None:
+            path = self.params_path
+            
+        try:
+            with open(path, 'r') as f:
+                params = yaml.safe_load(f)
+                self.params = params['train_model']
+                return self.params
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Error parsing YAML file: {e}")
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Config file not found at path: {path}")
+        except Exception as e:
+            raise Exception(f"Unexpected error loading parameters: {e}")
+
+    def load_data(self, path: Optional[str] = None) -> Tuple[pd.DataFrame, pd.Series]:
+        """Load and prepare training data"""
+        if path is None:
+            path = self.training_data_path
+            
+        try:
+            train = pd.read_csv(path + "/train.csv")
+
+            try:
+                self.X = train.drop(columns=['Class'])
+                self.y = train['Class']
+                return self.X, self.y
+            except KeyError as e:
+                raise KeyError(f"Required column 'Class' not found in data: {e}")
+        
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Train data file not found at: {path}")
+        except Exception as e:
+            raise Exception(f"Error loading training data: {e}")
+
+    def train_model(self, X_train: Optional[pd.DataFrame] = None, 
+                   y_train: Optional[pd.Series] = None, 
+                   params: Optional[Dict[str, Any]] = None) -> RandomForestClassifier:
+        """Train the machine learning model"""
+        if X_train is None:
+            X_train = self.X
+        if y_train is None:
+            y_train = self.y
+        if params is None:
+            params = self.params
+            
+        try:
+            self.model = RandomForestClassifier(
+                n_estimators=params['n_estimators'],
+                max_depth=params['max_depth'],
+                random_state=params['seed']
+            )
+
+            self.model.fit(X_train, y_train)
+            
+            return self.model
+        except KeyError as e:
+            raise KeyError(f"Required parameter not found in configuration: {e}")
+        except ValueError as e:
+            raise ValueError(f"Invalid value during model training: {e}")
+        except Exception as e:
+            raise Exception(f"Error during model training: {e}")
+
+    def save_model(self, model: Optional[RandomForestClassifier] = None, 
+                  path: Optional[str] = None) -> None:
+        """Save trained model to disk"""
+        if model is None:
+            model = self.model
+        if path is None:
+            path = self.model_path
+            
+        try:
+            # Create directory if it doesn't exist
+            pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+            
+            joblib.dump(model, path + "/model.joblib")
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Directory not found for saving model: {path}")
+        except Exception as e:
+            raise Exception(f"Error saving model: {e}")
+
+    def process(self) -> None:
+        """Execute the full model training pipeline"""
+        try:
+            self.load_params()
+            self.load_data()
+            self.train_model()
+            self.save_model()
+        except Exception as e:
+            raise Exception(f"Error in model training pipeline: {e}")
 
 def main():
-    logger = logging.getLogger("Model Training Logger")
-    logger.setLevel("DEBUG")
-
-    handler = logging.StreamHandler()
-    handler.setLevel("DEBUG")
-
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    logger.info("Starting model training process")
-    curr_dir = pathlib.Path(__file__).resolve()
-    home_dir = curr_dir.parent.parent.parent
-
-    params_path = home_dir.as_posix() + "/params.yaml"
-    data_path = home_dir.as_posix() + "/data"
-    training_data_path = data_path + "/processed"
-    model_path = home_dir.as_posix() + "/models"
-
-    logger.info("Loading parameters")
-    params = load_params(path=params_path, logger=logger)
-    logger.info("Parameters loaded")
-
-    logger.info("Loading dataset")
-    X, y = load_data(path=training_data_path, logger=logger)
-    logger.info("Dataset loaded")
-
-    logger.info("Training model")
-    model = train_model(X, y, params, logger)
-    logger.info("Model trained")
-
-    logger.info("Saving model")
-    save_model(model, model_path, logger)
-    logger.info("Model saved")
+    try:
+        model_trainer = ModelTrainer()
+        model_trainer.process()
+    except Exception as e:
+        raise
 
 if __name__ == '__main__':
     main()
